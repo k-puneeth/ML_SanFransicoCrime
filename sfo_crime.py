@@ -115,9 +115,9 @@ rf_model = RandomForestClassifier(n_estimators=300, max_depth=20, n_jobs=10, min
 
 rf_model.fit(X, y)
 
-predicted = rf_model.predict_proba(X_test)
-predicted_loss = np.array(predicted)
-print(log_loss(y_test, predicted_loss))
+# predicted = rf_model.predict_proba(X_test)
+# predicted_loss = np.array(predicted)
+# print(log_loss(y_test, predicted_loss))
 
 # For tuning hyperparameters
 #---------------------------
