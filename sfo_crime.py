@@ -1,15 +1,27 @@
+# Next Up
+# 1. [x] Make a submission
+# 2. [] Train other models (Logistic Regression, Naive Bayes, SVM)
+
 import numpy as np
 import pandas as pd
 import xgboost as xgb
+import s2sphere as sp
 from sklearn import datasets 
 from sklearn import preprocessing
 from sklearn.metrics import confusion_matrix 
 from sklearn.model_selection import train_test_split, cross_val_score
 
-df = pd.read_csv("../input/train.csv")
-df2 = df['Category']
+df_train = pd.read_csv("../input/train.csv")
+df_test = pd.read_csv("../input/test.csv")
+
+train_len = len(df_train)
+
+df = pd.concat(objs=[df_train, df_test], axis=0).reset_index(drop=True)
+
+df2 = df_train['Category']
 
 df = df.drop(['Id', 'Resolution','Descript'],axis=1)
+
 df['Dates'] = pd.to_datetime(df['Dates'])
 df['Counter'] = 1
 df['Simul_Crimes'] = df.groupby(['Address', 'Dates'])['Counter'].transform('count')
@@ -72,78 +84,25 @@ def dummmy_df(df, todummy_list):
         df = pd.concat([df, dummies], axis = 1)
     return df
 
+df['Coordinate'] = df[['X', 'Y']].apply(lambda x: sp.CellId.from_lat_lng(sp.CellId.from_degrees(x[0], x[1])).level(), axis=1)
+df = df.drop(['X', 'Y'], axis=1)
+
 X = dummmy_df(df, todummy_list)
 lb = preprocessing.LabelEncoder()
 y = lb.fit_transform(df2)
 
-df_test = pd.read_csv("../input/test.csv")
-
-df_test['Dates'] = pd.to_datetime(df_test['Dates'])
-df_test['Counter'] = 1
-df_test['Simul_Crimes'] = df_test.groupby(['Address', 'Dates'])['Counter'].transform('count')
-df_test['Year'], df_test['Month'],df_test['Hour'] = df_test['Dates'].dt.year, df_test['Dates'].dt.month,df_test['Dates'].dt.hour
-
-df_test = df_test[['Year', 'Month', 'Hour', 'DayOfWeek', 'PdDistrict', 'Address', 'Simul_Crimes', 'X', 'Y', 'Id']]
-
-df_test['Street'] = df_test.apply(street, axis=1) 
-    
-df_test['Season'] = df_test.apply(season, axis=1)
-
-df_test['Evening'] = df_test.apply(evening, axis=1)
-
-df_test = df_test.drop(['Address'], axis=1)
-
-IQR = df_test.X.quantile(0.75) - df_test.X.quantile(0.25)
-Lower_fence_X = df_test.X.quantile(0.25) - (IQR * 3)
-Upper_fence_X = df_test.X.quantile(0.75) + (IQR * 3)
-df_test.loc[df_test.X < -122.51093037786198, 'X']= -122.51093037786198
-df_test.loc[df_test.X > -122.32897987265702, 'X']= -122.32897987265702
-
-IQR = df_test.Y.quantile(0.75) - df_test.Y.quantile(0.25)
-Lower_fence_Y = df_test.Y.quantile(0.25) - (IQR * 3)
-Upper_fence_Y = df_test.Y.quantile(0.75) + (IQR * 3)
-df_test.loc[df_test.Y > 37.8801919977151, 'Y']= 37.8801919977151
-
-todummy_list = ['Year', 'Month', 'Hour', 'DayOfWeek', 'PdDistrict', 'Street', 'Season', 'Evening', 'Simul_Crimes']
-
-X_df_test = dummmy_df(df_test, todummy_list)
-
-missing_cols = set( X.columns ) - set( X_df_test.columns )
-
-for c in missing_cols:
-    X_df_test[c] = 0
-
-X_df_test = X_df_test[X.columns]
-
-from sklearn.preprocessing import StandardScaler
-scaler = StandardScaler()
-scaler.fit(X)
-scaler.fit(X_df_test) 
-
-# Validation Testing Code
-#------------------------
-# X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=.90, test_size=0.10)
+X_train = X[:train_len]
+X_test = X[train_len:]
 
 
-# dtrain = xgb.DMatrix(X_train, label=y_train)
-# dtest = xgb.DMatrix(X_test, label=y_test)
-# params = {'max_depth':5, 'silent':1, 'eta':0.4, 'objective':'multi:softprob', 'sub_sample':0.9, 'num_class':39, 'eval_metric':'mlogloss'}
-# watchlist = [(dtrain, 'train'), (dtest, 'val')]
-# bst = xgb.train(params, dtrain, 50, watchlist)
 
 params = {'max_depth':5, 'silent':1, 'eta':0.4, 'objective':'multi:softprob', 'sub_sample':0.9, 'num_class':36, 'eval_metric':'mlogloss'}
 
-xgb_train = xgb.DMatrix(X, label=y)
-xgb_test = xgb.DMatrix(X_df_test)
-bst = xgb.train(params, xgb_train, 50)
+xgb_train = xgb.DMatrix(X_train, label=y)
+xgb_test = xgb.DMatrix(X_test)
+bst = xgb.train(params, xgb_train, 70)
 
 predicts = bst.predict(xgb_test)
 
 submission_results = pd.DataFrame(predicts, columns=lb.classes_)
-submission_results['Id'] = df_test['Id']
-
-cols = submission_results.columns.tolist()
-cols.insert(0, cols.pop(cols.index('Id')))
-submission_results = submission_results.reindex(columns= cols)
-
-submission_results.to_csv('submission_xgb.csv', index=False)
+submission_results.to_csv('submission_xgb.csv', index_label = 'Id')
